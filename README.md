@@ -39,3 +39,5 @@ curl --silent http://ifconfig.me
 - /diagrams/diagram_1_1.png
 - /diagrams/diagram_1_2.png
 - /diagrams/diagram_1_3.png
+- 
+- 

@@ -311,9 +311,9 @@ docker compose -f mongo-repl-cache.yaml down --rmi all --volumes --remove-orphan
 ---
 
 ## Задание 5
-Cхема /arch/gateway-discovery.drawio
+Cхема /diagrams/diagram_1_2.png
 
 ---
 
 ## Задание 6
-Cхема /arch/cdn.drawio
+Cхема /diagrams/diagram_1_3.png

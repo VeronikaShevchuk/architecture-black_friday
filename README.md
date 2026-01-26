@@ -219,85 +219,88 @@ docker compose -f mongo-sharding-repl.yaml down --rmi all --volumes --remove-orp
 ## Задание 4
 ### Запуск контейнеров
 ```shell
-docker compose -f mongo-repl-cache.yaml up -d
+docker compose -f mongo-sharding.yaml up -d
 ```
 
-### Настройка Config Server Replica Set
+###  Настройка конфигурационного сервера
 ```shell
-docker compose -f mongo-repl-cache.yaml exec -T config-srv1 mongosh --port 27017 --quiet <<EOF
-rs.initiate(
-    {
-        _id: "config_server",
-        configsvr: true,
-        members: [
-            { _id: 0, host: "config-srv1:27017"},
-            { _id: 1, host: "config-srv2:27017"},
-            { _id: 2, host: "config-srv3:27017"}
-        ]
-    }
-);
-EOF
+docker compose -f mongo-sharding.yaml exec -T configSrv mongosh --port 27017 --quiet --eval "rs.initiate({_id : 'config_server', configsvr: true, members: [{ _id : 0, host : 'configSrv:27017' }]})"
 ```
-
-### Настройка Shard 1 Replica Set
+### Настройка шардов
 ```shell
-docker compose -f mongo-repl-cache.yaml exec -T shard1-node1 mongosh --port 27018 --quiet <<EOF
-rs.initiate(
-{
-    _id: "shard1",
-        members: [
-            { _id: 0, host: "shard1-node1:27018"},
-            { _id: 1, host: "shard1-node2:27018"},
-            { _id: 2, host: "shard1-node3:27018"}
-        ]
-    }
-)
-EOF
+# Шард 1
+docker compose -f mongo-sharding.yaml exec -T shard1 mongosh --port 27018 --quiet --eval "rs.initiate({_id : 'shard1', members: [{ _id : 0, host : 'shard1:27018' }]})"
+
+# Шард 2  
+docker compose -f mongo-sharding.yaml exec -T shard2 mongosh --port 27019 --quiet --eval "rs.initiate({_id : 'shard2', members: [{ _id : 0, host : 'shard2:27019' }]})"
 ```
 
-### Настройка Shard 2 Replica Set
+### Добавление шардов и настройка шардинга
 ```shell
-docker compose -f mongo-repl-cache.yaml exec -T shard2-node1 mongosh --port 27019 --quiet <<EOF
-rs.initiate(
-    {
-    _id: "shard2",
-        members: [
-            { _id: 0, host: "shard2-node1:27019" },
-            { _id: 1, host: "shard2-node2:27019" },
-            { _id: 2, host: "shard2-node3:27019" }
-        ]
-    }
-)
-EOF
+# Добавляем шарды в роутер
+docker compose -f mongo-sharding.yaml exec -T router mongosh --port 27020 --quiet --eval "sh.addShard('shard1/shard1:27018'); sh.addShard('shard2/shard2:27019')"
+
+# Включаем шардинг для базы данных
+docker compose -f mongo-sharding.yaml exec -T router mongosh --port 27020 --quiet --eval "sh.enableSharding('somedb'); sh.shardCollection('somedb.helloDoc', { 'name' : 'hashed' })"
 ```
 
-### Настройка шардов в кластер через Mongos
+### Проверка настройки
 ```shell
-docker compose -f mongo-repl-cache.yaml exec -T router mongosh --port 27020 --quiet <<EOF
-sh.addShard("shard1/shard1-node1:27018,shard1-node2:27018,shard1-node3:27018")
-sh.addShard("shard2/shard2-node1:27019,shard2-node2:27019,shard2-node3:27019")
-EOF
+docker compose -f mongo-sharding.yaml exec router mongosh --port 27020 --quiet --eval "sh.status()"
 ```
 
-
-### Настройка шардирования для базы данных
+### Вставка тестовых данных
 ```shell
-docker compose -f mongo-repl-cache.yaml exec -T router mongosh --port 27020 --quiet <<EOF
-sh.enableSharding("somedb")
-use somedb
-db.helloDoc.createIndex({ name: "hashed" });
-sh.shardCollection("somedb.helloDoc", { "name" : "hashed" } )
-for(var i = 0; i < 1000; i++) db.helloDoc.insert({age:i, name:"ly"+i})
-db.helloDoc.countDocuments()
-EOF
+docker compose -f mongo-sharding.yaml exec router mongosh --port 27020 somedb --eval "
+db.helloDoc.insertOne({name: 'alex', age: 25});
+db.helloDoc.insertOne({name: 'maria', age: 30});
+db.helloDoc.insertOne({name: 'john', age: 28});
+print('Вставлено 3 документа');
+"
 ```
+или Вставка большего количества (по одному документу)
+
+```shell
+for ($i=1; $i -le 10; $i++) {
+    docker compose -f mongo-sharding.yaml exec router mongosh --port 27020 somedb --eval "db.helloDoc.insertOne({name: 'user_$i', age: $(20+$i), department: 'IT'})"
+    Write-Host "Документ $i добавлен"
+}
+```
+
+### Тестирование системы
+```shell
+# Проверка приложения
+curl http://localhost:8080/helloDoc/users -UseBasicParsing
+
+# Или через браузер:
+# http://localhost:8080/helloDoc/users
+```
+
+
 ### Проверка состояния БД
 ```shell
-docker compose -f mongo-repl-cache.yaml exec -T router mongosh --port 27020 --quiet <<EOF
-use somedb
-db.helloDoc.countDocuments()
-db.helloDoc.getShardDistribution()
-EOF
+# Количество документов
+docker compose -f mongo-sharding.yaml exec router mongosh --port 27020 somedb --eval "print('Документов в helloDoc: ' + db.helloDoc.countDocuments())"
+
+# Примеры документов
+docker compose -f mongo-sharding.yaml exec router mongosh --port 27020 somedb --eval "db.helloDoc.find().forEach(function(doc) { print(' - ' + doc.name + ' (' + doc.age + ' лет)') })"
+```
+### Проверка шардинга
+```shell
+# Статус шардинга
+docker compose -f mongo-sharding.yaml exec router mongosh --port 27020 --quiet --eval "sh.status()"
+
+# Распределение по шардам
+docker compose -f mongo-sharding.yaml exec router mongosh --port 27020 --eval "use somedb; var stats=db.helloDoc.stats(); if(stats.sharded){for(var shard in stats.shards){print(shard+': '+stats.shards[shard].count+' док.')}}"
+```
+
+### Проверка API
+```shell
+# Простая проверка
+curl http://localhost:8080/helloDoc/users -UseBasicParsing
+
+# С лимитом
+curl "http://localhost:8080/helloDoc/users?limit=3" -UseBasicParsing
 ```
 
 ### Проверку приложения
@@ -311,9 +314,9 @@ docker compose -f mongo-repl-cache.yaml down --rmi all --volumes --remove-orphan
 ---
 
 ## Задание 5
-Cхема /diagrams/diagram_1_2.png
+Cхема /diagrams/api_gateway.drawio.png
 
 ---
 
 ## Задание 6
-Cхема /diagrams/diagram_1_3.png
+Cхема /diagrams/CDN.drawio.png

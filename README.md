@@ -48,63 +48,57 @@ docker compose -f mongo-sharding.yaml up -d
 
 ### Настройка сервера конфигурации
 ```shell
-docker compose -f mongo-sharding.yaml exec -T configSrv mongosh --port 27017 --quiet <<EOF
-rs.initiate({_id : "config_server",configsvr: true,members: [{ _id : 0, host : "configSrv:27017" }]})
-EOF
+docker compose -f mongo-sharding.yaml exec -T configSrv mongosh --port 27017 --quiet --eval "rs.initiate({_id : 'config_server', configsvr: true, members: [{ _id : 0, host : 'configSrv:27017' }]})"
 ```
 
 ### Настройка шардов
 ```shell
-docker compose -f mongo-sharding.yaml exec -T shard1 mongosh --port 27018 --quiet <<EOF
-rs.initiate({_id : "shard1",members: [{ _id : 0, host : "shard1:27018" }]})
-EOF
+docker compose -f mongo-sharding.yaml exec -T shard1 mongosh --port 27018 --quiet --eval "rs.initiate({_id : 'shard1', members: [{ _id : 0, host : 'shard1:27018' }]})"
 ```
 
 ```shell
-docker compose -f mongo-sharding.yaml exec -T shard2 mongosh --port 27019 --quiet <<EOF
-rs.initiate({_id : "shard2",members: [{ _id : 1, host : "shard2:27019" }]})
-EOF
+docker compose -f mongo-sharding.yaml exec -T shard2 mongosh --port 27019 --quiet --eval "rs.initiate({_id : 'shard2', members: [{ _id : 0, host : 'shard2:27019' }]})"
 ```
 
 ### Настройка шардов на роутере
 ```shell
-docker compose -f mongo-sharding.yaml exec -T router mongosh --port 27020 --quiet <<EOF
-sh.addShard("shard1/shard1:27018")
-sh.addShard("shard2/shard2:27019")
-EOF
+docker compose -f mongo-sharding.yaml exec -T router mongosh --port 27020 --quiet --eval "sh.addShard('shard1/shard1:27018')"
+docker compose -f mongo-sharding.yaml exec -T router mongosh --port 27020 --quiet --eval "sh.addShard('shard2/shard2:27019')"
 ```
 
 ### Настройка шардирования БД
 ```shell
-docker compose -f mongo-sharding.yaml exec -T router mongosh --port 27020 --quiet <<EOF
-sh.enableSharding("somedb")
-sh.shardCollection("somedb.helloDoc", { "name" : "hashed" } )
-EOF
+docker compose -f mongo-sharding.yaml exec -T router mongosh --port 27020 --quiet --eval "sh.enableSharding('somedb'); sh.shardCollection('somedb.helloDoc', { 'name' : 'hashed' })"
 ```
 ### Наполнение БД тестовыми данными
 ```shell
-docker compose -f mongo-sharding.yaml exec -T router mongosh --port 27020 --quiet <<EOF
-use somedb
-for(var i = 0; i < 1000; i++) db.helloDoc.insert({age:i, name:"ly"+i})
-EOF
+docker compose -f mongo-sharding.yaml exec router mongosh --port 27020 somedb --eval "
+db.helloDoc.insertOne({name: 'alex', age: 25});
+db.helloDoc.insertOne({name: 'maria', age: 30});
+db.helloDoc.insertOne({name: 'john', age: 28});
+print('Вставлено 3 документа');
+"
+```
+млм или Вставка большего количества (по одному документу)
+```shell
+for ($i=1; $i -le 10; $i++) {
+    docker compose -f mongo-sharding.yaml exec router mongosh --port 27020 somedb --eval "db.helloDoc.insertOne({name: 'user_$i', age: $(20+$i), department: 'IT'})"
+    Write-Host "Документ $i добавлен"
+}
 ```
 
 ### Проверка наполнения БД тестовыми данными
 ```shell
-docker compose -f mongo-sharding.yaml exec -T router mongosh --port 27020 --quiet <<EOF
-use somedb
-db.helloDoc.countDocuments()
-EOF
+docker compose -f mongo-sharding.yaml exec router mongosh --port 27020 somedb --eval "print('Документов в helloDoc: ' + db.helloDoc.countDocuments())"
 ```
 
-docker compose exec -T shadr1 mongosh --port 27018 --quiet <<EOF
 ### Проверка состояния БД
 ```shell
-docker compose -f mongo-sharding.yaml exec -T router mongosh --port 27020 --quiet <<EOF
-use somedb
-db.helloDoc.countDocuments()
-db.helloDoc.getShardDistribution()
-EOF
+# Количество документов
+docker compose -f mongo-sharding.yaml exec router mongosh --port 27020 somedb --eval "print('Документов в helloDoc: ' + db.helloDoc.countDocuments())"
+
+# Примеры документов
+docker compose -f mongo-sharding.yaml exec router mongosh --port 27020 somedb --eval "db.helloDoc.find().forEach(function(doc) { print(' - ' + doc.name + ' (' + doc.age + ' лет)') })"
 ```
 
 ###  Проверка приложения

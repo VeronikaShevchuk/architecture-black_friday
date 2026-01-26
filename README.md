@@ -116,88 +116,53 @@ docker compose -f mongo-sharding-repl.yaml up -d
 
 ### Настройка Config Server Replica Set
 ```shell
-docker compose -f mongo-sharding-repl.yaml exec -T config-srv1 mongosh --port 27017 --quiet <<EOF
-rs.initiate(
-   {
-        _id: "config_server",
-        configsvr: true,
-        members: [
-            { _id: 0, host: "config-srv1:27017"},
-            { _id: 1, host: "config-srv2:27017"},
-            { _id: 2, host: "config-srv3:27017"}
-        ]
-    }
-);
-EOF
+docker compose -f mongo-sharding-repl.yaml exec -T config-srv1 mongosh --port 27017 --quiet --eval "rs.initiate({ _id: 'config_server', configsvr: true, members: [ { _id: 0, host: 'config-srv1:27017' }, { _id: 1, host: 'config-srv2:27017' }, { _id: 2, host: 'config-srv3:27017' } ] })"
 ```
 
 ### Настройка Shard 1 Replica Set
 ```shell
-docker compose -f mongo-sharding-repl.yaml exec -T shard1-node1 mongosh --port 27018 --quiet <<EOF
-rs.initiate(
-    {
-      _id: "shard1",
-      members: [
-        { _id: 0, host: "shard1-node1:27018"},
-        { _id: 1, host: "shard1-node2:27018"},
-        { _id: 2, host: "shard1-node3:27018"}
-      ]
-    }
-)
-EOF
+docker compose -f mongo-sharding-repl.yaml exec -T shard1-node1 mongosh --port 27018 --quiet --eval "rs.initiate({ _id: 'shard1', members: [ { _id: 0, host: 'shard1-node1:27018' }, { _id: 1, host: 'shard1-node2:27018' }, { _id: 2, host: 'shard1-node3:27018' } ] })"
 ```
 
 ### Настройка Shard 2 Replica Set
 ```shell
-docker compose -f mongo-sharding-repl.yaml exec -T shard2-node1 mongosh --port 27019 --quiet <<EOF
-rs.initiate(
-    {
-      _id: "shard2",
-      members: [
-        { _id: 0, host: "shard2-node1:27019" },
-        { _id: 1, host: "shard2-node2:27019" },
-        { _id: 2, host: "shard2-node3:27019" }
-      ]
-    }
-)
-EOF
+docker compose -f mongo-sharding-repl.yaml exec -T shard2-node1 mongosh --port 27019 --quiet --eval "rs.initiate({ _id: 'shard2', members: [ { _id: 0, host: 'shard2-node1:27019' }, { _id: 1, host: 'shard2-node2:27019' }, { _id: 2, host: 'shard2-node3:27019' } ] })"
 ```
 
 ### Добавление шардов в кластер через Mongos
 ```shell
-docker compose -f mongo-sharding-repl.yaml exec -T router mongosh --port 27020 --quiet <<EOF
-sh.addShard("shard1/shard1-node1:27018,shard1-node2:27018,shard1-node3:27018")
-sh.addShard("shard2/shard2-node1:27019,shard2-node2:27019,shard2-node3:27019")
-EOF
+docker compose -f mongo-sharding-repl.yaml exec -T router mongosh --port 27020 --quiet --eval "sh.addShard('shard1/shard1-node1:27018,shard1-node2:27018,shard1-node3:27018')"
+docker compose -f mongo-sharding-repl.yaml exec -T router mongosh --port 27020 --quiet --eval "sh.addShard('shard2/shard2-node1:27019,shard2-node2:27019,shard2-node3:27019')"
 ```
 
 ### Настройка шардирования для базы данных и наполнение тестовыми данными
 ```shell
-docker compose -f mongo-sharding-repl.yaml exec -T router mongosh --port 27020 --quiet <<EOF
-sh.enableSharding("somedb")
-use somedb
-db.helloDoc.createIndex({ name: "hashed" });
-sh.shardCollection("somedb.helloDoc", { "name" : "hashed" } )
-for(var i = 0; i < 1000; i++) db.helloDoc.insert({age:i, name:"ly"+i})
-db.helloDoc.countDocuments()
-EOF
+docker compose -f mongo-sharding-repl.yaml exec -T router mongosh --port 27020 --quiet --eval "sh.enableSharding('somedb'); use somedb; db.helloDoc.createIndex({ name: 'hashed' }); sh.shardCollection('somedb.helloDoc', { 'name' : 'hashed' })"
+```
+### Настройка шардирования для базы данных и наполнение тестовыми данными
+```shell
+docker compose -f mongo-sharding-repl.yaml exec -T router mongosh --port 27020 --quiet --eval "sh.enableSharding('somedb'); use somedb; db.helloDoc.createIndex({ name: 'hashed' }); sh.shardCollection('somedb.helloDoc', { 'name' : 'hashed' })"
 ```
 
-### Проверка наполнения БД тестовыми данными
+### Наполнение тестовыми данными (1000 документов)
 ```shell
-docker compose -f mongo-sharding-repl.yaml exec -T router mongosh --port 27020 --quiet <<EOF
-use somedb
-db.helloDoc.countDocuments()
-EOF
+docker compose -f mongo-sharding-repl.yaml exec -T router mongosh --port 27020 --quiet --eval "use somedb; for(var i = 0; i < 100; i++) { db.helloDoc.insertOne({age:i, name:'ly'+i}) }; print('Вставлено 100 документов')"
+```
+Но в PowerShell для теста я вставку выполняла по одному документу, в цикле не отрабатывает нормально, вставляет, но не сохраняет
+```shell
+for ($i=1; $i -le 10; $i++) {
+    docker compose -f mongo-sharding.yaml exec router mongosh --port 27020 somedb --eval "db.helloDoc.insertOne({name: 'user_$i', age: $(20+$i), department: 'IT'})"
+    Write-Host "Документ $i добавлен"
+}
 ```
 
 ### Проверка состояния БД
 ```shell
-docker compose -f mongo-sharding-repl.yaml exec -T router mongosh --port 27020 --quiet <<EOF
-use somedb
-db.helloDoc.countDocuments()
-db.helloDoc.getShardDistribution()
-EOF
+docker compose -f mongo-sharding-repl.yaml exec -T router mongosh --port 27020 --quiet --eval "use somedb; print('Всего документов: ' + db.helloDoc.countDocuments())"
+```
+### Распределение
+```shell
+docker compose -f mongo-sharding-repl.yaml exec -T router mongosh --port 27020 --quiet --eval "use somedb; print('=== ПРОВЕРКА ==='); print('Документов: ' + db.helloDoc.countDocuments()); print('Распределение:'); try { printjson(db.helloDoc.getShardDistribution()) } catch(e) { print('Ошибка получения распределения') }"
 ```
 
 ### Проверка приложения
